@@ -99,7 +99,7 @@ def login_retry(*args, **kwargs):
 def captcha_solver(captcha_image_url: str, session: requests.session) -> str:
     """使用 ddddocr 本地识别验证码"""
     log("[Captcha Solver] 正在使用 ddddocr 识别验证码...")
-    ocr = ddddocr.DdddOcr(show_ad=False)
+    ocr = ddddocr.DdddOcr()
     
     # 获取验证码图片
     response = session.get(captcha_image_url)
