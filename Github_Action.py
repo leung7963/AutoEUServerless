@@ -101,27 +101,15 @@ def login_retry(*args, **kwargs):
         return inner
     return wrapper
 
-# 验证码解决器
+# 验证码解决器 (使用 ddddocr)
 def captcha_solver(captcha_image_url: str, session: requests.session) -> str:
-    """使用 ddddocr 本地识别验证码"""
-    log("[Captcha Solver] 正在使用 ddddocr 识别验证码...")
-    ocr = ddddocr.DdddOcr()
-    
-    # 获取验证码图片
     response = session.get(captcha_image_url)
-    if response.status_code != 200:
-        log("[Captcha Solver] 验证码下载失败")
-        return ""
-    
-    # 识别验证码
-    res = ocr.classification(response.content)
-    log(f"[Captcha Solver] 识别结果: {res}")
+    image_bytes = response.content
+    res = ocr.classification(image_bytes)
     return res
-    
 
-# 处理验证码解决结果
+# 处理验证码解决结果 (包含运算符处理)
 def handle_captcha_solved_result(solved_text: str) -> str:
-    log("[Captcha Solver] 识别的验证码是: {}".format(solved_text))
     operators = ["X", "x", "+", "-"]
     if any(x in solved_text for x in operators):
         for operator in operators:
@@ -130,17 +118,15 @@ def handle_captcha_solved_result(solved_text: str) -> str:
                 operator = "*"
             if operator_pos != -1:
                 left_part = solved_text[:operator_pos]
-                right_part = solved_text[operator_pos + 1 :]
-                if left_part.isdigit() and right_part.isdigit():
-                    return eval(
-                        "{left} {operator} {right}".format(
-                            left=left_part, operator=operator, right=right_part
-                        )
-                    )
-                else:
-                    # 这些符号("X", "x", "+", "-")不会同时出现，
-                    # 它只包含一个算术符号。
-                    return solved_text
+                right_part = solved_text[operator_pos + 1:]
+                try:
+                    if left_part.isdigit() and right_part.isdigit():
+                        return str(eval(f"{left_part} {operator} {right_part}"))
+                    else:
+                        # 尝试解析更复杂的表达式 (例如: 10+2x3)
+                        return str(eval(solved_text.replace("x", "*")))
+                except:
+                    return solved_text  # 如果解析失败，则返回原始验证码
     else:
         return solved_text
 
