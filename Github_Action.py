@@ -25,6 +25,10 @@ TG_BOT_TOKEN = os.getenv('TG_BOT_TOKEN')
 TG_USER_ID = os.getenv('TG_USER_ID')
 TG_API_HOST = "https://api.telegram.org"
 
+# Mailparser 配置
+MAILPARSER_DOWNLOAD_URL_ID = os.getenv('MAILPARSER_DOWNLOAD_URL_ID')
+MAILPARSER_DOWNLOAD_BASE_URL = "https://files.mailparser.io/d/"
+
 # 代理设置（如果需要）
 PROXIES = {"http": "http://127.0.0.1:10808", "https": "http://127.0.0.1:10808"}
 
