@@ -103,10 +103,21 @@ def login_retry(*args, **kwargs):
 
 # 验证码解决器
 def captcha_solver(captcha_image_url: str, session: requests.session) -> str:
+    """使用 ddddocr 本地识别验证码"""
+    log("[Captcha Solver] 正在使用 ddddocr 识别验证码...")
+    ocr = ddddocr.DdddOcr()
+    
+    # 获取验证码图片
     response = session.get(captcha_image_url)
-    img_bytes = response.content
-    res = ocr.classification(img_bytes)
+    if response.status_code != 200:
+        log("[Captcha Solver] 验证码下载失败")
+        return ""
+    
+    # 识别验证码
+    res = ocr.classification(response.content)
+    log(f"[Captcha Solver] 识别结果: {res}")
     return res
+    
 
 # 处理验证码解决结果
 def handle_captcha_solved_result(solved_text: str) -> str:
