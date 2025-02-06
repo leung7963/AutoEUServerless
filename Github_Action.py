@@ -3,7 +3,7 @@
 """
 euserv 自动续期脚本
 功能:
-* 使用 ddddocr 本地识别验证码
+* 使用 ddddocr 自动识别验证码
 * 发送通知到 Telegram
 * 增加登录失败重试机制
 * 日志信息格式化
@@ -12,18 +12,13 @@ import os
 import re
 import json
 import time
-import base64
 import requests
-import ddddocr
 from bs4 import BeautifulSoup
+import ddddocr
 
 # 账户信息：用户名和密码
 USERNAME = os.getenv('EUSERV_USERNAME')  # 填写用户名或邮箱
 PASSWORD = os.getenv('EUSERV_PASSWORD')  # 填写密码
-
-# Mailparser 配置
-MAILPARSER_DOWNLOAD_URL_ID = os.getenv('MAILPARSER_DOWNLOAD_URL_ID')
-MAILPARSER_DOWNLOAD_BASE_URL = "https://files.mailparser.io/d/"
 
 # Telegram Bot 推送配置
 TG_BOT_TOKEN = os.getenv('TG_BOT_TOKEN')
@@ -45,22 +40,27 @@ user_agent = (
 )
 desp = ""  # 日志信息
 
+ocr = ddddocr.DdddOcr()
+
 def log(info: str):
     emoji_map = {
-        "正在续费": "🔄",
-        "检测到": "🔍",
-        "ServerID": "🔗",
+        "正在续费": "",
+        "检测到": "",
+        "ServerID": "",
         "无需更新": "✅",
         "续订错误": "⚠️",
-        "已成功续订": "🎉",
-        "所有工作完成": "🏁",
+        "已成功续订": "",
+        "所有工作完成": "",
         "登陆失败": "❗",
         "验证通过": "✔️",
         "验证失败": "❌",
-        "[MailParser]": "📧",
-        "[Captcha Solver]": "🧩",
-        "[AutoEUServerless]": "🌐",
+        "验证码是": "",
+        "登录尝试": "",
+        "[MailParser]": "",
+        "[Captcha Solver]": "",
+        "[AutoEUServerless]": "",
     }
+    # 对每个关键字进行检查，并在找到时添加 emoji
     for key, emoji in emoji_map.items():
         if key in info:
             info = emoji + " " + info
@@ -70,12 +70,14 @@ def log(info: str):
     global desp
     desp += info + "\n\n"
 
+
 # 登录重试装饰器
 def login_retry(*args, **kwargs):
     def wrapper(func):
         def inner(username, password):
             ret, ret_session = func(username, password)
             max_retry = kwargs.get("max_retry")
+            # 默认重试 3 次
             if not max_retry:
                 max_retry = 3
             number = 0
@@ -97,23 +99,39 @@ def login_retry(*args, **kwargs):
 
 # 验证码解决器
 def captcha_solver(captcha_image_url: str, session: requests.session) -> str:
-    """使用 ddddocr 本地识别验证码"""
-    log("[Captcha Solver] 正在使用 ddddocr 识别验证码...")
-    ocr = ddddocr.DdddOcr()
-    
-    # 获取验证码图片
     response = session.get(captcha_image_url)
-    if response.status_code != 200:
-        log("[Captcha Solver] 验证码下载失败")
-        return ""
-    
-    # 识别验证码
-    res = ocr.classification(response.content)
-    log(f"[Captcha Solver] 识别结果: {res}")
+    img_bytes = response.content
+    res = ocr.classification(img_bytes)
     return res
+
+# 处理验证码解决结果
+def handle_captcha_solved_result(solved_text: str) -> str:
+    log("[Captcha Solver] 识别的验证码是: {}".format(solved_text))
+    operators = ["X", "x", "+", "-"]
+    if any(x in solved_text for x in operators):
+        for operator in operators:
+            operator_pos = solved_text.find(operator)
+            if operator == "x" or operator == "X":
+                operator = "*"
+            if operator_pos != -1:
+                left_part = solved_text[:operator_pos]
+                right_part = solved_text[operator_pos + 1 :]
+                if left_part.isdigit() and right_part.isdigit():
+                    return eval(
+                        "{left} {operator} {right}".format(
+                            left=left_part, operator=operator, right=right_part
+                        )
+                    )
+                else:
+                    # 这些符号("X", "x", "+", "-")不会同时出现，
+                    # 它只包含一个算术符号。
+                    return solved_text
+    else:
+        return solved_text
 
 # 从 Mailparser 获取 PIN
 def get_pin_from_mailparser(url_id: str) -> str:
+    # 从 Mailparser 获取 PIN# 
     response = requests.get(
         f"{MAILPARSER_DOWNLOAD_BASE_URL}{url_id}",
     )
@@ -123,6 +141,7 @@ def get_pin_from_mailparser(url_id: str) -> str:
 # 登录函数
 @login_retry(max_retry=LOGIN_MAX_RETRY_COUNT)
 def login(username: str, password: str) -> (str, requests.session):
+    # 登录 EUserv 并获取 session# 
     headers = {"user-agent": user_agent, "origin": "https://www.euserv.com"}
     url = "https://support.euserv.com/index.iphp"
     captcha_image_url = "https://support.euserv.com/securimage_show.php"
@@ -147,10 +166,10 @@ def login(username: str, password: str) -> (str, requests.session):
         if "To finish the login process please solve the following captcha." not in f.text:
             return "-1", session
         else:
-            # 获取并识别验证码
+            log("[Captcha Solver] 正在进行验证码识别...")
             captcha_code = captcha_solver(captcha_image_url, session)
-            
-            # 提交验证码
+            captcha_code = handle_captcha_solved_result(captcha_code)
+
             f2 = session.post(
                 url,
                 headers=headers,
@@ -171,6 +190,7 @@ def login(username: str, password: str) -> (str, requests.session):
 
 # 获取服务器列表
 def get_servers(sess_id: str, session: requests.session) -> {}:
+    # 获取服务器列表# 
     d = {}
     url = "https://support.euserv.com/index.iphp?sess_id=" + sess_id
     headers = {"user-agent": user_agent, "origin": "https://www.euserv.com"}
@@ -198,6 +218,7 @@ def get_servers(sess_id: str, session: requests.session) -> {}:
 def renew(
     sess_id: str, session: requests.session, password: str, order_id: str, mailparser_dl_url_id: str
 ) -> bool:
+    # 执行续期操作# 
     url = "https://support.euserv.com/index.iphp"
     headers = {
         "user-agent": user_agent,
@@ -214,7 +235,7 @@ def renew(
     }
     session.post(url, headers=headers, data=data)
 
-    # 触发发送 PIN
+    # 弹出 'Security Check' 窗口，将自动触发 '发送 PIN'。
     session.post(
         url,
         headers=headers,
@@ -226,10 +247,12 @@ def renew(
         },
     )
 
+    # 等待邮件解析器解析出 PIN
     time.sleep(WAITING_TIME_OF_PIN)
     pin = get_pin_from_mailparser(mailparser_dl_url_id)
     log(f"[MailParser] PIN: {pin}")
 
+    # 使用 PIN 获取 token
     data = {
         "auth": pin,
         "sess_id": sess_id,
@@ -255,6 +278,7 @@ def renew(
 
 # 检查续期状态
 def check(sess_id: str, session: requests.session):
+    # 检查续期状态# 
     print("Checking.......")
     d = get_servers(sess_id, session)
     flag = True
@@ -272,11 +296,19 @@ def telegram():
         "<b>AutoEUServerless 日志</b>\n\n" + desp +
         "\n<b>版权声明：</b>\n"
         "本脚本基于 GPL-3.0 许可协议，版权所有。\n\n"
+        
         "<b>致谢：</b>\n"
-        "特别感谢 <a href='https://github.com/lw9726/eu_ex'>eu_ex</a> 的贡献\n"
-        "开发者：<a href='https://github.com/WizisCool'>WizisCool</a>\n"
-        "<a href='https://github.com/WizisCool/AutoEUServerless'>⭐️ Star 本项目</a>"
+        "特别感谢 <a href='https://github.com/lw9726/eu_ex'>eu_ex</a> 的贡献和启发, 本项目在此基础整理。\n"
+        "开发者：<a href='https://github.com/lw9726/eu_ex'>WizisCool</a>\n"
+        "<a href='https://www.nodeseek.com/space/8902#/general'>个人Nodeseek主页</a>\n"
+        "<a href='https://dooo.ng'>个人小站Dooo.ng</a>\n\n"
+        "<b>支持项目：</b>\n"
+        "⭐️ 给我们一个 GitHub Star! ⭐️\n"
+        "<a href='https://github.com/WizisCool/AutoEUServerless'>访问 GitHub 项目</a>"
     )
+
+    # 请不要删除本段版权声明, 开发不易, 感谢! 感谢!
+    # 请勿二次售卖,出售,开源不易,万分感谢!
     data = {
         "chat_id": TG_USER_ID,
         "text": message,
@@ -287,13 +319,16 @@ def telegram():
         TG_API_HOST + "/bot" + TG_BOT_TOKEN + "/sendMessage", data=data
     )
     if response.status_code != 200:
-        print("Telegram 推送失败")
+        print("Telegram Bot 推送失败")
     else:
-        print("Telegram 推送成功")
+        print("Telegram Bot 推送成功")
+
+
 
 def main_handler(event, context):
+    # 主函数，处理每个账户的续期# 
     if not USERNAME or not PASSWORD:
-        log("[AutoEUServerless] 请配置用户名和密码")
+        log("[AutoEUServerless] 你没有添加任何账户")
         exit(1)
     user_list = USERNAME.strip().split()
     passwd_list = PASSWORD.strip().split()
@@ -302,33 +337,34 @@ def main_handler(event, context):
         log("[AutoEUServerless] 用户名和密码数量不匹配!")
         exit(1)
     if len(mailparser_dl_url_id_list) != len(user_list):
-        log("[AutoEUServerless] Mailparser 配置数量不匹配!")
+        log("[AutoEUServerless] mailparser_dl_url_ids 和用户名的数量不匹配!")
         exit(1)
     for i in range(len(user_list)):
         print("*" * 30)
-        log(f"[AutoEUServerless] 处理第 {i+1} 个账号")
+        log("[AutoEUServerless] 正在续费第 %d 个账号" % (i + 1))
         sessid, s = login(user_list[i], passwd_list[i])
         if sessid == "-1":
-            log(f"[AutoEUServerless] 第 {i+1} 个账号登录失败")
+            log("[AutoEUServerless] 第 %d 个账号登陆失败，请检查登录信息" % (i + 1))
             continue
         SERVERS = get_servers(sessid, s)
-        log(f"[AutoEUServerless] 发现 {len(SERVERS)} 台服务器")
+        log("[AutoEUServerless] 检测到第 {} 个账号有 {} 台 VPS，正在尝试续期".format(i + 1, len(SERVERS)))
         for k, v in SERVERS.items():
             if v:
                 if not renew(sessid, s, passwd_list[i], k, mailparser_dl_url_id_list[i]):
-                    log(f"[AutoEUServerless] 续期失败: {k}")
+                    log("[AutoEUServerless] ServerID: %s 续订错误!" % k)
                 else:
-                    log(f"[AutoEUServerless] 续期成功: {k}")
+                    log("[AutoEUServerless] ServerID: %s 已成功续订!" % k)
             else:
-                log(f"[AutoEUServerless] 无需续期: {k}")
+                log("[AutoEUServerless] ServerID: %s 无需更新" % k)
         time.sleep(15)
         check(sessid, s)
         time.sleep(5)
 
+    # 发送 Telegram 通知
     if TG_BOT_TOKEN and TG_USER_ID and TG_API_HOST:
         telegram()
 
     print("*" * 30)
 
 if __name__ == "__main__":
-    main_handler(None, None)
+     main_handler(None, None)
