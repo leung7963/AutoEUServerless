@@ -44,7 +44,6 @@ user_agent = (
 )
 desp = ""  # 日志信息
 
-ocr = ddddocr.DdddOcr()
 
 def log(info: str):
     emoji_map = {
@@ -103,6 +102,7 @@ def login_retry(*args, **kwargs):
 
 # 验证码解决器 (使用 ddddocr)
 def captcha_solver(captcha_image_url: str, session: requests.session) -> str:
+    ocr = ddddocr.DdddOcr()
     response = session.get(captcha_image_url)
     image_bytes = response.content
     res = ocr.classification(image_bytes)
