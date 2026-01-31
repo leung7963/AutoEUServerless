@@ -20,7 +20,10 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install requests beautifulsoup4 ddddocr
+        pip install requests beautifulsoup4
+        git clone https://github.com/leung7963/ddddocr.git
+        cd ddddocr
+        pip install .
 
     - name: Run script
       env:
