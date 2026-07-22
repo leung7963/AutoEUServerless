@@ -33,3 +33,11 @@ jobs:
         TG_USER_ID: ${{ secrets.TG_USER_ID }}
         MAILPARSER_DOWNLOAD_URL_ID: ${{ secrets.MAILPARSER_DOWNLOAD_URL_ID }}
       run: python Github_Action.py
+    - name: 删除旧的运行记录
+      uses: leung7963/delete-workflow-runs@main
+      with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          delete_workflow_pattern: ${{ github.workflow }}  # 自动匹配当前工作流
+          use_daily_retention: "true"
+          keep_minimum_runs: 1
