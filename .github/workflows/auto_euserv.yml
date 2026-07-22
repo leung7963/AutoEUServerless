@@ -41,3 +41,4 @@ jobs:
           delete_workflow_pattern: ${{ github.workflow }}  # 自动匹配当前工作流
           use_daily_retention: "true"
           keep_minimum_runs: 1
+          retain_days: 1
